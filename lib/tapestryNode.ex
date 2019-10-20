@@ -3,7 +3,7 @@ defmodule TapestryNode do
 
     def start_link(x,_,numRequests) do
         input_srt = Integer.to_string(x)
-        nodeid = String.slice(Base.encode16(:crypto.hash(:sha, input_srt)),0..7)
+        [{_,nodeid}] =  :ets.lookup(:hashList,Integer.to_string(x))
         GenServer.start_link(__MODULE__, {nodeid,numRequests}, name: String.to_atom("n#{nodeid}"))
     end
 
@@ -25,18 +25,32 @@ defmodule TapestryNode do
       end
     end
 
+    def closer(selfid,prevNeigh,newNeigh) do
+      if elem(Integer.parse(String.at(selfid,0),16),0)-elem(Integer.parse(String.at(prevNeigh,0),16),0)-
+      elem(Integer.parse(String.at(selfid,0),16),0)-elem(Integer.parse(String.at(newNeigh,0),16),0) > 0 do
+        newNeigh
+      else
+        prevNeigh
+      end
+    end
+
     def routeTableBuilder(routetable, [],selfid) do
       routetable
     end
 
     def routeTableBuilder(routetable, [head | tail],selfid) do
       {level,slot} = match(head,selfid)
-      newroute = put_in routetable[level][slot], head
+      #IO.puts "check #{inspect routetable[level][slot]}"
+      newroute = if routetable[level][slot] != nil do
+         put_in routetable[level][slot], closer(selfid,routetable[level][slot],head)
+      else
+         put_in routetable[level][slot], head
+      end
       routeTableBuilder(newroute, tail,selfid)
     end
 
     def handle_cast({:intialize_routing_table,num_created},{selfid,routetable,numRequests,0})do
-        hashList = Enum.map 1..num_created, fn(x) -> String.slice(Base.encode16(:crypto.hash(:sha, Integer.to_string(x))),0..7) end
+        hashList = Enum.map 1..num_created, fn(x) -> elem(Enum.at(:ets.lookup(:hashList,Integer.to_string(x)),0),1) end
         hashList = hashList -- [selfid]
         routetable = routeTableBuilder( routetable, hashList,selfid )
         #Matrix.to_list(routetable)
