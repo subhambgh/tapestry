@@ -1,12 +1,23 @@
 defmodule Main do
 
-  def main(args) do
+  @nodeLength 8
+
+  def main(numNodes,noOfRequests) do
         #parse_args(args)
         Process.register(self(),:main)
-        TapestrySupervisor.start_link([10,1])
         :ets.new(:hashList, [:set, :protected, :named_table])
-        :ets.insert(:hashList, {"doomspork", "Sean", ["Elixir", "Ruby", "Java"]})
-        process(10)
+        createHashList(numNodes)
+        TapestrySupervisor.start_link([numNodes,noOfRequests])
+        process(numNodes)
+  end
+
+  def createHashList(numNodes) do
+    if numNodes==0 do
+      :ok
+    else
+      :ets.insert(:hashList,{Integer.to_string(numNodes),String.slice(Base.encode16(:crypto.hash(:sha, Integer.to_string(numNodes))),0..@nodeLength-1)})
+      createHashList(numNodes-1)
+    end
   end
 
   def process(numNodes) do
@@ -14,13 +25,11 @@ defmodule Main do
         {:nodes_created} ->
           hashList = Enum.map 1..numNodes,
           fn(x) ->
-            nextNode = "n"<>String.slice(Base.encode16(:crypto.hash(:sha, Integer.to_string(x))),0..numNodes-1)
+            nextNode = "n"<>elem(Enum.at(:ets.lookup(:hashList,Integer.to_string(x)),0),1)
             GenServer.cast(String.to_atom(nextNode),{:intialize_routing_table,10})
           end
-
       end
       process(numNodes)
   end
-
 
 end
