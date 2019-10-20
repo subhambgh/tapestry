@@ -4,6 +4,8 @@ defmodule Main do
         parse_args(args)
   end
 
-
+  def parse_args(abc) do
+  	
+  end
 
 end

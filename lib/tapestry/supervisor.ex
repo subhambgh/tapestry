@@ -1,7 +1,7 @@
 defmodule TapestrySupervisor do
   use Supervisor
 
-  def start_link(opts) do
+  def start_link(opts, nodes, requests) do
     {:ok,pid} = Supervisor.start_link(__MODULE__, [nodes,requests], opts)
     #send(Process.whereis(:boss),{:nodes_created})
     {:ok,pid}
