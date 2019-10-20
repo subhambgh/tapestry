@@ -8,8 +8,8 @@ defmodule TapestryNode do
     end
 
     def init({selfid,numRequests}) do
-        routetableblueprint = Matrix.from_list(Enum.map(1..8, fn n -> Enum.map(1..16, fn n-> [] end) end))
-        routetable =  add_self(selfid, routetableblueprint, 1)
+        routetable = Matrix.from_list(Enum.map(1..8, fn n -> Enum.map(1..16, fn n-> [] end) end))
+        #IO.puts("created")
         {:ok, {selfid,routetable,numRequests,0}}
     end
 
@@ -19,7 +19,7 @@ defmodule TapestryNode do
         if current_level == 9 do
             routetable
         else
-            IO.puts "adding #{current_level}"
+            #IO.puts "adding #{current_level}"
             {column, _} = Integer.parse(String.at(selfid,current_level-1), 16) 
             routetablenew = put_in(routetable[current_level-1][column], selfid)
             add_self(selfid, routetablenew, current_level+1)
@@ -41,6 +41,7 @@ defmodule TapestryNode do
     end
 
     def routeTableBuilder(routetable, [],selfid) do
+        IO.puts "Finally here"
       routetable
     end
 
@@ -50,29 +51,38 @@ defmodule TapestryNode do
       routeTableBuilder(newroute, tail,selfid)
     end
 
-    def handle_cast({:intialize_routing_table,num_created},{selfid,routetable,numRequests,0})do
+    def handle_cast({:intialize_routing_table,num_created},{selfid,routetable,numRequests,zzzz})do
+        #IO.puts("here")
         hashList = Enum.map 1..num_created, fn(x) -> String.slice(Base.encode16(:crypto.hash(:sha, Integer.to_string(x))),0..7) end
         hashList = hashList -- [selfid]
         routetable = routeTableBuilder( routetable, hashList,selfid )
+        routetable =  add_self(selfid, routetable, 1)
         #Matrix.to_list(routetable)
         IO.puts("#{selfid} #{inspect routetable}")
-        {:noreply, {selfid,routetable,numRequests,0}}
-    def add_self(selfid, routetable, current_level) do
+        {:noreply, {selfid,routetable,numRequests,zzzz}}
+    end
+
+
+    def handle_cast({:goGoGo, numRequests}, {selfid,routetable,numRequests,zzzz}) do
         
-        if current_level == 9 do
-            routetable
-        else
-            IO.puts "adding #{current_level}"
-            {column, _} = Integer.parse(String.at(selfid,current_level-1), 16) 
-            routetablenew = put_in(routetable[current_level-1][column], selfid)
-            add_self(selfid, routetablenew, current_level+1)
+        #TAKE FROM ETS
+        hashList = Enum.map 1..num_created, fn(x) -> String.slice(Base.encode16(:crypto.hash(:sha, Integer.to_string(x))),0..7) end
+        hashList = hashList -- [selfid]
+
+        
+
+        if numRequests!= 0 do
+            GenServer.cast(seld, {:goGoGo, numRequests-1})
         end
-
-
+        {:noreply, {selfid,routetable,numRequests,zzzz}}
     end
 
 
-    def handle_cast({:intialize_routing_table},{selfid,routetable,req,num_created})do
-      
+    def handle_cast({}, {}) do
+
+
+        {:noreply, {selfid,routetable,numRequests,zzzz}}
     end
+
+ 
 end
