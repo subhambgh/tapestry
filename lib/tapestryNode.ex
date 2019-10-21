@@ -18,14 +18,14 @@ defmodule TapestryNode do
         {:ok, {selfid,routetable,numRequests,0}}
     end
 
-    
+
 	def add_self(selfid, routetable, current_level) do
-        
+
         if current_level == 9 do
             routetable
         else
             #IO.puts "adding #{current_level}"
-            {column, _} = Integer.parse(String.at(selfid,current_level-1), 16) 
+            {column, _} = Integer.parse(String.at(selfid,current_level-1), 16)
             routetablenew = put_in(routetable[current_level-1][column], selfid)
             add_self(selfid, routetablenew, current_level+1)
         end
@@ -45,13 +45,24 @@ defmodule TapestryNode do
       end
     end
 
+    #returns closest neighbour of selfid b/w [prevNeigh and newNeigh]
+    #comparing hashvalues
     def closer(selfid,prevNeigh,newNeigh) do
-      #if elem(Integer.parse(String.at(selfid,0),16),0)-elem(Integer.parse(String.at(prevNeigh,0),16),0)-
-      #elem(Integer.parse(String.at(selfid,0),16),0)-elem(Integer.parse(String.at(newNeigh,0),16),0) > 0 do
-        newNeigh
-      #else
-        #prevNeigh
-      #end
+      {pLevel,pSlot} = match(prevNeigh,selfid)
+      {nLevel,nSlot} = match(newNeigh,selfid)
+      cond do
+        pLevel==nLevel ->
+            if Kernel.abs(elem(Integer.parse(String.at(selfid,pLevel),16),0)-elem(Integer.parse(String.at(prevNeigh,pLevel),16),0))-
+            Kernel.abs(elem(Integer.parse(String.at(selfid,nLevel),16),0)-elem(Integer.parse(String.at(newNeigh,nLevel),16),0)) > 0 do
+              newNeigh
+            else
+              prevNeigh
+            end
+        pLevel>nLevel ->
+          prevNeigh
+        true ->
+          newNeigh
+      end
     end
 
     def routeTableBuilder(routetable, [],selfid) do
@@ -80,7 +91,7 @@ defmodule TapestryNode do
     end
 
     def selectNodeToSend( selfid, listOfNodes, toRemove) do
-      
+
       x = Enum.random(listOfNodes)
       someNode = "n"<> elem(Enum.at(:ets.lookup(:hashList,Integer.to_string(x)),0),1)
       #IO.inspect someNode
@@ -90,7 +101,7 @@ defmodule TapestryNode do
       else
         someNode
       end
-      
+
     end
 
     def route_throught_the_table(routetable, selfid, to_send) do
@@ -98,27 +109,27 @@ defmodule TapestryNode do
 
       cond do
         routetable[level][slot] == to_send ->
-                      routetable[level][slot]  
+                      routetable[level][slot]
         true ->
 
 
-       end  
+       end
     end
 
     def handle_cast({:goGoGo, numNodes, numRequests}, {selfid,routetable,numRequests2,zzzz}) do
-        
+
         #IO.inspect(selfid)
         if numRequests != 0 do
           listOfNodes = Enum.map(1..numNodes, fn n -> n end)
           #IO.inspect(listOfNodes)
-          
+
           to_send = selectNodeToSend("n"<> selfid, listOfNodes, [])
           IO.puts("#{selfid} - #{to_send}")
-          
+
           {level,slot} = match(selfid, String.slice(to_send, 1..100))
           my_closest_connection = routetable[level][slot]
           GenServer.cast(String.to_atom("n"<>my_closest_connection), {:routing, numNodes, numRequests, 1, "n"<> selfid, to_send})
-          
+
           GenServer.cast(self, {:goGoGo, numNodes, numRequests-1})
         end
 
@@ -138,5 +149,5 @@ defmodule TapestryNode do
         {:noreply, {selfid,routetable,numRequests,zzzz}}
     end
 
- 
+
 end
