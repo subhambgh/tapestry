@@ -14,8 +14,8 @@ defmodule TapestryNode do
         routetable = routeTableBuilder( routetable, hashList,selfid )
         routetable = add_self(selfid, routetable, 1 )
         #Matrix.to_list(routetable)
-        IO.puts("#{selfid} #{inspect routetable}")
-        {:ok, {selfid,routetable,numRequests,0}}
+        #IO.puts("#{selfid} #{inspect routetable}")
+        {:ok, {selfid,routetable,numRequests,{0, 0, "noOneYet"}}} #{n request completed, max hops, req. for which sender node}
     end
 
     
@@ -85,7 +85,7 @@ defmodule TapestryNode do
       someNode = "n"<> elem(Enum.at(:ets.lookup(:hashList,Integer.to_string(x)),0),1)
       #IO.inspect someNode
       if someNode == selfid do
-        IO.puts("here")
+        #IO.puts("here")
         selectNodeToSend(selfid, listOfNodes, [x])
       else
         someNode
@@ -113,10 +113,12 @@ defmodule TapestryNode do
           #IO.inspect(listOfNodes)
           
           to_send = selectNodeToSend("n"<> selfid, listOfNodes, [])
-          IO.puts("#{selfid} - #{to_send}")
           
-          {level,slot} = match(selfid, String.slice(to_send, 1..100))
+          
+          {level,slot} = match(String.slice(to_send, 1..100), selfid)
           my_closest_connection = routetable[level][slot]
+          #IO.puts "#{selfid} - #{String.slice(to_send, 1..100)} || #{level} #{slot}"
+
           GenServer.cast(String.to_atom("n"<>my_closest_connection), {:routing, numNodes, numRequests, 1, "n"<> selfid, to_send})
           
           GenServer.cast(self, {:goGoGo, numNodes, numRequests-1})
@@ -128,14 +130,38 @@ defmodule TapestryNode do
 
     def handle_cast({:routing, numNodes, numRequests, hops, senderId, receiverId}, {selfid,routetable,numRequests,zzzz}) do
 
+      #IO.puts "#{senderId} --> #{receiverId} || #{selfid} #{hops}"
+      #if hops < 2 do
+        
+      if selfid == String.slice(receiverId, 1..100) do
+        GenServer.cast(String.to_atom(senderId), {:message_received, hops, receiverId})  
+      else
+        {level,slot} = match(selfid, String.slice(receiverId, 1..100))
+        my_closest_connection = routetable[level][slot]
+        IO.puts("#{routetable[level][slot]}")
+        GenServer.cast(String.to_atom("n"<>my_closest_connection), {:routing, numNodes, numRequests, hops+1, senderId, receiverId})
+      end
 
-        {:noreply, {selfid,routetable,numRequests,zzzz}}
+      #end
+      
+      {:noreply, {selfid,routetable,numRequests,zzzz}}
     end
 
-    def handle_cast({:message_received, numNodes, numRequests, hops, senderId, receiverId}, {selfid,routetable,numRequests,zzzz}) do
+    def handle_cast({:message_received, hops, receiverId}, {selfid,routetable,numRequests,{reqCompleted, prevhops, highest}}) do
+      
+      #IO.puts("hops #{hops} #{receiverId}")
+      {prevhops, highest} = if hops > prevhops do
+                              {hops, receiverId}
+                            end
+      reqCompleted = reqCompleted + 1
+      
+      #IO.puts "#{prevhops} #{highest} #{reqCompleted}"
 
-
-        {:noreply, {selfid,routetable,numRequests,zzzz}}
+      if reqCompleted == numRequests do
+        #GenServer.cast(Process.whereis(:main), {:})
+        IO.puts "max for #{selfid} is #{prevhops} to #{highest}"
+      end
+      {:noreply, {selfid,routetable,numRequests,{reqCompleted, prevhops, highest}}}
     end
 
  
