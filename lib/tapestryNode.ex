@@ -1,15 +1,20 @@
 defmodule TapestryNode do
     use GenServer
 
-    def start_link(x,_,numRequests) do
+    def start_link(x,num_created,numRequests) do
         input_srt = Integer.to_string(x)
         [{_,nodeid}] =  :ets.lookup(:hashList,Integer.to_string(x))
-        GenServer.start_link(__MODULE__, {nodeid,numRequests}, name: String.to_atom("n#{nodeid}"))
+        GenServer.start_link(__MODULE__, {nodeid,num_created, numRequests}, name: String.to_atom("n#{nodeid}"))
     end
 
-    def init({selfid,numRequests}) do
+    def init({selfid,num_created, numRequests}) do
         routetable = Matrix.from_list(Enum.map(1..8, fn n -> Enum.map(1..16, fn n-> [] end) end))
-        #IO.puts("created")
+        hashList = Enum.map 1..num_created, fn(x) -> elem(Enum.at(:ets.lookup(:hashList,Integer.to_string(x)),0),1) end
+        hashList = hashList -- [selfid]
+        routetable = routeTableBuilder( routetable, hashList,selfid )
+        routetable = add_self(selfid, routetable, 1 )
+        #Matrix.to_list(routetable)
+        IO.puts("#{selfid} #{inspect routetable}")
         {:ok, {selfid,routetable,numRequests,0}}
     end
 
@@ -41,16 +46,15 @@ defmodule TapestryNode do
     end
 
     def closer(selfid,prevNeigh,newNeigh) do
-      if elem(Integer.parse(String.at(selfid,0),16),0)-elem(Integer.parse(String.at(prevNeigh,0),16),0)-
-      elem(Integer.parse(String.at(selfid,0),16),0)-elem(Integer.parse(String.at(newNeigh,0),16),0) > 0 do
+      #if elem(Integer.parse(String.at(selfid,0),16),0)-elem(Integer.parse(String.at(prevNeigh,0),16),0)-
+      #elem(Integer.parse(String.at(selfid,0),16),0)-elem(Integer.parse(String.at(newNeigh,0),16),0) > 0 do
         newNeigh
-      else
-        prevNeigh
-      end
+      #else
+        #prevNeigh
+      #end
     end
 
     def routeTableBuilder(routetable, [],selfid) do
-        IO.puts "Finally here"
       routetable
     end
 
@@ -65,34 +69,50 @@ defmodule TapestryNode do
       routeTableBuilder(newroute, tail,selfid)
     end
 
-    def handle_cast({:intialize_routing_table,num_created},{selfid,routetable,numRequests,zzzz})do
-        #IO.puts("here")
-        hashList = Enum.map 1..num_created, fn(x) -> String.slice(Base.encode16(:crypto.hash(:sha, Integer.to_string(x))),0..7) end
-        hashList = hashList -- [selfid]
-        routetable = routeTableBuilder( routetable, hashList,selfid )
-        routetable =  add_self(selfid, routetable, 1)
-        #Matrix.to_list(routetable)
-        IO.puts("#{selfid} #{inspect routetable}")
-        {:noreply, {selfid,routetable,numRequests,zzzz}}
+    def handle_cast({:intialize_routing_table,num_created},{selfid,routetable,numRequests,0})do
+        # hashList = Enum.map 1..num_created, fn(x) -> elem(Enum.at(:ets.lookup(:hashList,Integer.to_string(x)),0),1) end
+        # hashList = hashList -- [selfid]
+        # routetable = routeTableBuilder( routetable, hashList,selfid )
+        # routetable = add_self(selfid, routetable, 1 )
+        # #Matrix.to_list(routetable)
+        # IO.puts("#{selfid} #{inspect routetable}")
+        {:noreply, {selfid,routetable,numRequests,0}}
     end
 
+    def selectNodeToSend( selfid, listOfNodes, toRemove) do
+      
+      x = Enum.random(listOfNodes)
+      someNode = "n"<> elem(Enum.at(:ets.lookup(:hashList,Integer.to_string(x)),0),1)
+      #IO.inspect someNode
+      if someNode == selfid do
+        IO.puts("here")
+        selectNodeToSend(selfid, listOfNodes, [x])
+      else
+        someNode
+      end
+      
+    end
 
-    def handle_cast({:goGoGo, numRequests}, {selfid,routetable,numRequests,zzzz}) do
+    def handle_cast({:goGoGo, numNodes, numRequests}, {selfid,routetable,numRequests2,zzzz}) do
         
-        #TAKE FROM ETS
-        hashList = Enum.map 1..num_created, fn(x) -> String.slice(Base.encode16(:crypto.hash(:sha, Integer.to_string(x))),0..7) end
-        hashList = hashList -- [selfid]
-
-        
-
-        if numRequests!= 0 do
-            GenServer.cast(seld, {:goGoGo, numRequests-1})
+        #IO.inspect(selfid)
+        if numRequests != 0 do
+          listOfNodes = Enum.map(1..numNodes, fn n -> n end)
+          #IO.inspect(listOfNodes)
+          to_send = selectNodeToSend("n"<> selfid, listOfNodes, [])
+          IO.puts("#{selfid} - #{to_send}")
+          {level,slot} = match(to_send,selfid)
+          IO.inspect [level, slot, routetable [level][slot]]
+          GenServer.cast(to_send, {:routing, numNodes, numRequests, 0, senderId})
+          
+          GenServer.cast(self, {:goGoGo, numNodes, numRequests-1})
         end
-        {:noreply, {selfid,routetable,numRequests,zzzz}}
+
+        {:noreply, {selfid,routetable,numRequests2,zzzz}}
     end
 
 
-    def handle_cast({}, {}) do
+    def handle_cast({:routing, numNodes, numRequests, hops, senderId}, {selfid,routetable,numRequests,zzzz}) do
 
 
         {:noreply, {selfid,routetable,numRequests,zzzz}}
