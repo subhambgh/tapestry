@@ -93,17 +93,31 @@ defmodule TapestryNode do
       
     end
 
+    def route_throught_the_table(routetable, selfid, to_send) do
+      {level,slot} = match(selfid, to_send)
+
+      cond do
+        routetable[level][slot] == to_send ->
+                      routetable[level][slot]  
+        true ->
+
+
+       end  
+    end
+
     def handle_cast({:goGoGo, numNodes, numRequests}, {selfid,routetable,numRequests2,zzzz}) do
         
         #IO.inspect(selfid)
         if numRequests != 0 do
           listOfNodes = Enum.map(1..numNodes, fn n -> n end)
           #IO.inspect(listOfNodes)
+          
           to_send = selectNodeToSend("n"<> selfid, listOfNodes, [])
           IO.puts("#{selfid} - #{to_send}")
-          {level,slot} = match(to_send,selfid)
-          IO.inspect [level, slot, routetable [level][slot]]
-          GenServer.cast(to_send, {:routing, numNodes, numRequests, 0, senderId})
+          
+          {level,slot} = match(selfid, String.slice(to_send, 1..100))
+          my_closest_connection = routetable[level][slot]
+          GenServer.cast(String.to_atom("n"<>my_closest_connection), {:routing, numNodes, numRequests, 1, "n"<> selfid, to_send})
           
           GenServer.cast(self, {:goGoGo, numNodes, numRequests-1})
         end
@@ -112,7 +126,13 @@ defmodule TapestryNode do
     end
 
 
-    def handle_cast({:routing, numNodes, numRequests, hops, senderId}, {selfid,routetable,numRequests,zzzz}) do
+    def handle_cast({:routing, numNodes, numRequests, hops, senderId, receiverId}, {selfid,routetable,numRequests,zzzz}) do
+
+
+        {:noreply, {selfid,routetable,numRequests,zzzz}}
+    end
+
+    def handle_cast({:message_received, numNodes, numRequests, hops, senderId, receiverId}, {selfid,routetable,numRequests,zzzz}) do
 
 
         {:noreply, {selfid,routetable,numRequests,zzzz}}
