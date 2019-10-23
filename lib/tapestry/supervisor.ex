@@ -10,7 +10,9 @@ defmodule TapestrySupervisor do
   @impl true
   def init([nodes,requests]) do
     n_list = Enum.to_list 1..nodes
-    children = Enum.map(n_list, fn(x)->worker(TapestryNode, [x,nodes,requests], [id: "node#{x}"]) end)
+    children = #[ {"counter", {Tapestry.Counter, :start_link, [nodes]}, :permanent, 5000, :worker,[Tapestry.Counter]} |
+                Enum.map(n_list, fn(x)->worker(TapestryNode, [x,nodes,requests], [id: "node#{x}"]) end) 
+
     Supervisor.init(children, strategy: :one_for_one)
   end
 end

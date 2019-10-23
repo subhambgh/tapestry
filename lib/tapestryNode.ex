@@ -14,7 +14,7 @@ defmodule TapestryNode do
         routetable = routeTableBuilder( routetable, hashList,selfid )
         routetable = add_self(selfid, routetable, 1 )
         #Matrix.to_list(routetable)
-        #IO.puts("#{selfid} #{inspect routetable}")
+        #IO.puts("#{selfid} #{inspect Enum.map(Matrix.to_list(routetable), fn n -> IO.puts '#{inspect n}' end)}")
         {:ok, {selfid,routetable,numRequests,{0, 0, "noOneYet"}}} #{n request completed, max hops, req. for which sender node}
     end
 
@@ -43,6 +43,30 @@ defmodule TapestryNode do
         _->
           {index,elem(Integer.parse(String.at(nodeid,index),16),0)}
       end
+    end
+
+    def special_case(level, selfid, routetable) do
+      IO.puts "special_case #{routetable[level][0]}"
+    end
+
+    def anotherMatch(nodeid,selfid, routetable) do
+      index = Enum.find_index(0..7, fn i -> String.at(nodeid,i) != String.at(selfid,i) end)
+      #IO.puts "index = #{index} #{nodeid} #{selfid}"
+      
+      {level,slot} = case index do
+                      0 ->
+                        {0,elem(Integer.parse(String.at(nodeid,0),16),0)}
+                      _->
+                        {index,elem(Integer.parse(String.at(nodeid,index),16),0)}
+                    end
+      #IO.puts "here #{routetable[level][slot]} #{selfid}"  
+      if routetable[level][slot] == selfid do
+        
+        special_case(level, selfid, routetable)
+      else
+        {level,slot}
+      end
+
     end
 
     def closer(selfid,prevNeigh,newNeigh) do
@@ -79,14 +103,15 @@ defmodule TapestryNode do
         {:noreply, {selfid,routetable,numRequests,0}}
     end
 
-    def selectNodeToSend( selfid, listOfNodes, toRemove) do
+    def selectNodeToSend( selfid, listOfNodes) do
       
       x = Enum.random(listOfNodes)
       someNode = "n"<> elem(Enum.at(:ets.lookup(:hashList,Integer.to_string(x)),0),1)
       #IO.inspect someNode
       if someNode == selfid do
         #IO.puts("here")
-        selectNodeToSend(selfid, listOfNodes, [x])
+        new_listOfNodes = listOfNodes --[x]
+        selectNodeToSend(selfid, new_listOfNodes)
       else
         someNode
       end
@@ -112,13 +137,16 @@ defmodule TapestryNode do
           listOfNodes = Enum.map(1..numNodes, fn n -> n end)
           #IO.inspect(listOfNodes)
           
-          to_send = selectNodeToSend("n"<> selfid, listOfNodes, [])
+          to_send = selectNodeToSend("n"<> selfid, listOfNodes)
           
           
-          {level,slot} = match(String.slice(to_send, 1..100), selfid)
+          {level,slot} = anotherMatch(String.slice(to_send, 1..100), selfid, routetable)
           my_closest_connection = routetable[level][slot]
+          
           #IO.puts "#{selfid} - #{String.slice(to_send, 1..100)} || #{level} #{slot}"
-
+          if my_closest_connection == selfid do
+            IO.puts("Sending self")
+          end
           GenServer.cast(String.to_atom("n"<>my_closest_connection), {:routing, numNodes, numRequests, 1, "n"<> selfid, to_send})
           
           GenServer.cast(self, {:goGoGo, numNodes, numRequests-1})
@@ -128,18 +156,23 @@ defmodule TapestryNode do
     end
 
 
-    def handle_cast({:routing, numNodes, numRequests, hops, senderId, receiverId}, {selfid,routetable,numRequests,zzzz}) do
+    def handle_cast({:routing, numNodes, numRequests2, hops, senderId, receiverId}, {selfid,routetable,numRequests,zzzz}) do
 
       #IO.puts "#{senderId} --> #{receiverId} || #{selfid} #{hops}"
       #if hops < 2 do
         
       if selfid == String.slice(receiverId, 1..100) do
+        #IO.puts("here")
         GenServer.cast(String.to_atom(senderId), {:message_received, hops, receiverId})  
       else
-        {level,slot} = match(selfid, String.slice(receiverId, 1..100))
+        {level,slot} = anotherMatch(String.slice(receiverId, 1..100),selfid, routetable)
         my_closest_connection = routetable[level][slot]
-        IO.puts("#{routetable[level][slot]}")
+        if my_closest_connection == selfid do
+         IO.puts("Sending self")
+        end
+        #IO.puts("#{routetable[level][slot]}")
         GenServer.cast(String.to_atom("n"<>my_closest_connection), {:routing, numNodes, numRequests, hops+1, senderId, receiverId})
+        #GenServer.cast(String.to_atom("n"<>my_closest_connection), {:routing, numNodes, numRequests, hops+1, senderId, receiverId})
       end
 
       #end
@@ -147,21 +180,25 @@ defmodule TapestryNode do
       {:noreply, {selfid,routetable,numRequests,zzzz}}
     end
 
-    def handle_cast({:message_received, hops, receiverId}, {selfid,routetable,numRequests,{reqCompleted, prevhops, highest}}) do
+    def handle_cast({:message_received, hops, receiverId}, {selfid,routetable,numRequests,{reqCompleted, myMaxHops, highestReceiver}}) do
       
       #IO.puts("hops #{hops} #{receiverId}")
-      {prevhops, highest} = if hops > prevhops do
+      {myMaxHops, highestReceiver} = if hops > myMaxHops do
                               {hops, receiverId}
+                            else 
+                              {myMaxHops, highestReceiver}
                             end
       reqCompleted = reqCompleted + 1
       
-      #IO.puts "#{prevhops} #{highest} #{reqCompleted}"
+      #IO.puts "#{myMaxHops} #{highestReceiver} #{reqCompleted}"
+      #IO.puts "#{selfid} #{receiverId} #{reqCompleted}"
 
       if reqCompleted == numRequests do
         #GenServer.cast(Process.whereis(:main), {:})
-        IO.puts "max for #{selfid} is #{prevhops} to #{highest}"
+        IO.puts "max for #{selfid} is #{myMaxHops} to #{highestReceiver}"
+        #GenServer.cast(Tapestry.Counter, {:okk_done, myMaxHops, selfid, highestReceiver})
       end
-      {:noreply, {selfid,routetable,numRequests,{reqCompleted, prevhops, highest}}}
+      {:noreply, {selfid,routetable,numRequests,{reqCompleted, myMaxHops, highestReceiver}}}
     end
 
  
