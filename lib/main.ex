@@ -72,15 +72,15 @@ defmodule Main do
           newHashList = hashList -- [Enum.at(hashList,numNodes-1)]
           {needToKnowNodes,level} = findNeedToKnowNode(Enum.at(hashList,numNodes-1),[],0,newHashList)
           rootNode = findRootNode(Enum.at(hashList,numNodes-1),needToKnowNodes,level,Enum.at(needToKnowNodes,0))
-          IO.puts "lastNode=#{Enum.at(hashList,numNodes-1)}, needtoKnowNodes=#{inspect needToKnowNodes}, rootNode=#{rootNode}"
+          #IO.puts "lastNode=#{Enum.at(hashList,numNodes-1)}, needtoKnowNodes=#{inspect needToKnowNodes}, rootNode=#{rootNode}"
           needToKnowNodesFromRoot =  GenServer.call(String.to_atom("n"<>rootNode),{:multicast,level,Enum.at(hashList,numNodes-1),[rootNode]},:infinity)
           backpointerList = Enum.reduce needToKnowNodesFromRoot,[],fn x,acc->
               acc ++ GenServer.call(String.to_atom("n"<>x),{:getBackpointerList})
           end
-          IO.puts "needToKnowNodesFromRoot=#{inspect needToKnowNodesFromRoot}"
-          IO.puts "backpointerList=#{inspect backpointerList}"
+          #IO.puts "needToKnowNodesFromRoot=#{inspect needToKnowNodesFromRoot}"
+          #IO.puts "backpointerList=#{inspect backpointerList}"
           finalRouteTableList = Enum.uniq(needToKnowNodesFromRoot++backpointerList)
-          IO.puts "finalRouteTableList=#{inspect finalRouteTableList}"
+          #IO.puts "finalRouteTableList=#{inspect finalRouteTableList}"
           Enum.map finalRouteTableList, fn x ->
               GenServer.cast(String.to_atom("n"<>Enum.at(hashList,numNodes-1)),{:addToRoutTable,x})
           end
@@ -92,7 +92,7 @@ defmodule Main do
           # Enum.map hashList, fn x ->
           #   GenServer.cast(String.to_atom("n"<>x),{:printRoutTable})
           # end
-        #goGoGo(numNodes, numNodes, noOfRequests)
+        goGoGo(numNodes, numNodes, noOfRequests)
 
       end
       process(numNodes, noOfRequests)
