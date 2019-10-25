@@ -1,9 +1,9 @@
 defmodule TapestryNode do
-  use GenServer
+  use GenServer, restart: :temporary
 
   @nodeLength 8
 
-  def start_link(x, num_created, numRequests) do
+  def start_link([x, num_created, numRequests]) do
     input_srt = Integer.to_string(x)
     [{_, nodeid}] = :ets.lookup(:hashList, Integer.to_string(x))
 
@@ -13,22 +13,14 @@ defmodule TapestryNode do
   end
 
   def init({selfid, num_created, numRequests}) do
-    routetable =
-      Matrix.from_list([
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        [],
-        []
-      ])
+      routetable = Matrix.from_list([[],[],[],[],[],[],[],[]])
+      backupRoutetable1 = Matrix.from_list([[],[],[],[],[],[],[],[]])
+      backupRoutetable2 = Matrix.from_list([[],[],[],[],[],[],[],[]])
     # {n request completed, max hops, req. for which sender node}
-    {:ok, {selfid, routetable, numRequests, {0, 0, "noOneYet"}, []}}
+    {:ok, {selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {0, 0, "noOneYet"}, []}}
   end
 
-  def handle_call({:intialize_routing_table, num_created},_from,{selfid, routetable, numRequests2, zzzz, backpointerList}) do
+  def handle_call({:intialize_routing_table, num_created},_from,{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests2, zzzz, backpointerList}) do
     hashList =
       Enum.map(1..num_created, fn x ->
         elem(Enum.at(:ets.lookup(:hashList, Integer.to_string(x)), 0), 1)
@@ -44,9 +36,7 @@ defmodule TapestryNode do
         routetable
       end
     routetable = add_self(selfid, routetable, 1)
-    # IO.puts("#{selfid} #{inspect Matrix.to_list(routetable)}")
-    # IO.puts("#{selfid} #{inspect routetable}")
-    {:reply, :ok, {selfid, routetable, numRequests2, zzzz, backpointerList}}
+    {:reply, :ok, {selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests2, zzzz, backpointerList}}
   end
 
   def add_self(selfid, routetable, current_level) do
@@ -127,11 +117,20 @@ defmodule TapestryNode do
     newroute =
       if routetable[level][slot] != nil do
         closerNode = closer(selfid, routetable[level][slot], head)
-        # for backpointer
-        GenServer.cast(String.to_atom("n" <> closerNode), {:addAsBackpointer, selfid})
+        #more than one node that fits into a cell - store it as backup
+        if closerNode == head do
+          #when old node is replaced with the new node
+          #store the old in backup
+          GenServer.cast(self(),{:addtoBackupRoutTable1,routetable[level][slot],level,slot})
+          GenServer.cast(String.to_atom("n" <> routetable[level][slot]), {:removeAsBackpointer,selfid })
+          GenServer.cast(String.to_atom("n" <> closerNode), {:addAsBackpointer, selfid})
+        else
+          # when old is gold/closer
+          # store new as backup
+          GenServer.cast(self(),{:addtoBackupRoutTable1,head,level,slot})
+        end
         put_in(routetable[level][slot], closerNode)
       else
-        # for backpointer
         GenServer.cast(String.to_atom("n" <> head), {:addAsBackpointer, selfid})
         put_in(routetable[level][slot], head)
       end
@@ -164,7 +163,7 @@ defmodule TapestryNode do
   def handle_call(
         {:multicast, level, newNodeId, prevTargets},
         _from,
-        {selfid, routetable, numRequests, {reqCompleted, prevhops, highest}, backpointerList}
+        {selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}
       ) do
     targets =
       Enum.uniq(
@@ -172,7 +171,6 @@ defmodule TapestryNode do
           acc ++ Matrix.to_list(routetable[x])
         end)
       )
-
     # -- [selfid]
     # IO.puts "#selfid=#{selfid} targets=#{inspect targets} prevTargets=#{inspect prevTargets} level=#{level}"
     results =
@@ -189,47 +187,136 @@ defmodule TapestryNode do
     # IO.puts "#selfid=#{selfid} results=#{inspect results}"
     GenServer.cast(self(), {:addToRoutTable, newNodeId})
     {:reply, Enum.uniq(results ++ targets),
-    {selfid, routetable, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
+    {selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
   end
 
-  def handle_cast({:addToRoutTable, newNodeId},{selfid, routetable, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
+  def handle_cast({:addToRoutTable, newNodeId},{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
     {level, slot} = match(newNodeId, selfid)
     newrouteTable =
       if routetable[level][slot] != nil do
-        # for backpointer
         closerNode = closer(selfid, routetable[level][slot], newNodeId)
-        GenServer.cast(String.to_atom("n" <> closerNode), {:addAsBackpointer, selfid})
+        #more than one node that fits into a cell - store it as backup
+        if closerNode == newNodeId do
+          #when old node is replaced with the new node
+          #store the old in backup
+          GenServer.cast(self(),{:addtoBackupRoutTable1,routetable[level][slot],level,slot})
+          GenServer.cast(String.to_atom("n" <> routetable[level][slot]), {:removeAsBackpointer,selfid })
+          GenServer.cast(String.to_atom("n" <> closerNode), {:addAsBackpointer, selfid})
+        else
+          # when old is gold/closer
+          # store new as backup
+          GenServer.cast(self(),{:addtoBackupRoutTable1,newNodeId,level,slot})
+        end
         put_in(routetable[level][slot], closerNode)
       else
-        # for backpointer
         GenServer.cast(String.to_atom("n" <> newNodeId), {:addAsBackpointer, selfid})
         put_in(routetable[level][slot], newNodeId)
       end
-    {:noreply,{selfid, newrouteTable, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
+    {:noreply,{selfid, newrouteTable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
   end
 
-  def handle_cast({:printRoutTable},{selfid, routetable, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
+  def handle_call({:printTables},_from,{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
+    IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
     IO.puts("#{selfid}=#{inspect(routetable)}")
-
-    {:noreply,{selfid, routetable, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
+    IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    IO.puts("#{selfid}=#{inspect(backupRoutetable1)}")
+    IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    IO.puts("#{selfid}=#{inspect(backupRoutetable2)}")
+    {:reply,[],{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
   end
 
-  def handle_cast({:addAsBackpointer, nodeid},{selfid, routetable, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
-    backpointerList = backpointerList ++ [nodeid]
-    {:noreply,{selfid, routetable, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
+  def handle_cast({:addAsBackpointer, nodeid},{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
+    backpointerList = if !Enum.member?(backpointerList,nodeid) do
+      backpointerList ++ [nodeid]
+    else
+      backpointerList
+    end
+    {:noreply,{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
   end
 
-  def handle_call({:getBackpointerList},_from,{selfid, routetable, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
-    {:reply, backpointerList,{selfid, routetable, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
+  def handle_cast({:removeAsBackpointer, nodeid},{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
+      backpointerList = backpointerList -- [nodeid]
+    {:noreply,{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
   end
 
-  def handle_cast({:goGoGo, numNodes, numRequests},{selfid, routetable, numRequests2, zzzz, backpointerList}) do
+  def handle_call({:getBackpointerList},_from,{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
+    {:reply, backpointerList,{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
+  end
+
+  def handle_cast({:addtoBackupRoutTable1, nodeid,level,slot},{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
+    newbackuprouteTable1 =
+      if backupRoutetable1[level][slot] != nil do
+        closerNode = closer(selfid, backupRoutetable1[level][slot], nodeid)
+        #more than one node that fits into a cell - store it as backup
+        if closerNode == nodeid do
+          #when old node is replaced with the new node
+          #store the old in backup
+          GenServer.cast(self(),{:addtoBackupRoutTable2,backupRoutetable1[level][slot],level,slot})
+          GenServer.cast(String.to_atom("n" <> backupRoutetable1[level][slot]), {:removeAsBackpointer,selfid })
+          GenServer.cast(String.to_atom("n" <> closerNode), {:addAsBackpointer, selfid})
+        else
+          # when old is gold/closer
+          # store new as backup
+          GenServer.cast(self(),{:addtoBackupRoutTable2,nodeid,level,slot})
+        end
+        put_in(backupRoutetable1[level][slot], closerNode)
+      else
+        GenServer.cast(String.to_atom("n" <> nodeid), {:addAsBackpointer, selfid})
+        put_in(backupRoutetable1[level][slot], nodeid)
+      end
+    {:noreply,{selfid, routetable,newbackuprouteTable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
+  end
+
+  def handle_cast({:addtoBackupRoutTable2, nodeid,level,slot},{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
+    newbackuprouteTable2 =
+      if backupRoutetable2[level][slot] != nil do
+        closerNode = closer(selfid, backupRoutetable2[level][slot], nodeid)
+        if closerNode == nodeid do
+          GenServer.cast(String.to_atom("n" <> backupRoutetable2[level][slot]), {:removeAsBackpointer, selfid})
+        end
+        GenServer.cast(String.to_atom("n" <> closerNode), {:addAsBackpointer, selfid})
+        put_in(backupRoutetable2[level][slot], closerNode)
+      else
+        GenServer.cast(String.to_atom("n" <> nodeid), {:addAsBackpointer, selfid})
+        put_in(backupRoutetable2[level][slot], nodeid)
+      end
+    {:noreply,{selfid, routetable,backupRoutetable1,newbackuprouteTable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
+  end
+
+  def handle_call({:removeFromRoutTable, nodeid},_from,{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
+      {level, slot} = match(nodeid, selfid)
+      backpointerList = backpointerList -- [nodeid]
+      {routetable,backupRoutetable1,backupRoutetable2}=
+      cond do
+          routetable[level][slot] == nodeid ->
+            routetable = put_in routetable[level][slot],nil
+            #routetable = put_in routetable[level][slot],backupRoutetable1[level][slot]
+            # backupRoutetable1 = put_in backupRoutetable1[level][slot],backupRoutetable2[level][slot]
+            # backupRoutetable2 = put_in backupRoutetable2[level][slot],nil
+            #IO.puts "##{level},#{slot}=#{inspect routetable}"
+            {routetable,backupRoutetable1,backupRoutetable2}
+          backupRoutetable1[level][slot] == nodeid ->
+            backupRoutetable1 = put_in backupRoutetable1[level][slot],nil
+            #backupRoutetable1 = put_in backupRoutetable1[level][slot],backupRoutetable2[level][slot]
+            # backupRoutetable2 = put_in backupRoutetable2[level][slot],nil
+            # IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~2"
+            {routetable,backupRoutetable1,backupRoutetable2}
+          backupRoutetable2[level][slot] == nodeid ->
+            backupRoutetable2 = put_in backupRoutetable2[level][slot],nil
+            # IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~3"
+            {routetable,backupRoutetable1,backupRoutetable2}
+          true -> {routetable,backupRoutetable1,backupRoutetable2}
+      end
+      {:reply,[],{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
+  end
+
+  def handle_cast({:goGoGo, numNodes, numRequests},{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests2, zzzz, backpointerList}) do
     # IO.inspect(selfid)
     if numRequests != 0 do
       listOfNodes = Enum.map(1..numNodes, fn n -> n end)
       # IO.inspect(listOfNodes)
       to_send = selectNodeToSend("n" <> selfid, listOfNodes)
-      {level, slot} = anotherMatch(String.slice(to_send, 1..100), selfid, routetable)
+      {level, slot} = anotherMatch(String.slice(to_send, 1..10), selfid, routetable)
       my_closest_connection = routetable[level][slot]
       # IO.puts "#{selfid} - #{String.slice(to_send, 1..100)} || #{level} #{slot}"
       if my_closest_connection == selfid do
@@ -237,37 +324,38 @@ defmodule TapestryNode do
       end
       GenServer.cast(
         String.to_atom("n" <> my_closest_connection),
-        {:routing, numNodes, numRequests, 1, "n" <> selfid, to_send}
+        {:routing, numNodes, numRequests, 1, "n" <> selfid, to_send, [my_closest_connection]}
       )
       GenServer.cast(self, {:goGoGo, numNodes, numRequests - 1})
     end
-    {:noreply, {selfid, routetable, numRequests2, zzzz, backpointerList}}
+    {:noreply, {selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests2, zzzz, backpointerList}}
   end
 
-  def handle_cast({:routing, numNodes, numRequests2, hops, senderId, receiverId},{selfid, routetable, numRequests, zzzz, backpointerList}) do
+  def handle_cast({:routing, numNodes, numRequests2, hops, senderId, receiverId, list_traverse},{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, zzzz, backpointerList}) do
     # IO.puts "#{senderId} --> #{receiverId} || #{selfid} #{hops}"
     # if hops < 2 do
-    if selfid == String.slice(receiverId, 1..100) do
+    if selfid == String.slice(receiverId, 1..10) do
       # IO.puts("here")
-      GenServer.cast(String.to_atom(senderId), {:message_received, hops, receiverId})
+      GenServer.cast(String.to_atom(senderId), {:message_received, hops, receiverId, list_traverse})
     else
-      {level, slot} = anotherMatch(String.slice(receiverId, 1..100), selfid, routetable)
+      {level, slot} = anotherMatch(String.slice(receiverId, 1..10), selfid, routetable)
       my_closest_connection = routetable[level][slot]
+      new_list_traverse = list_traverse ++ [my_closest_connection]
       if my_closest_connection == selfid do
         IO.puts("Sending self")
       end
       # IO.puts("#{routetable[level][slot]}")
       GenServer.cast(
         String.to_atom("n" <> my_closest_connection),
-        {:routing, numNodes, numRequests, hops + 1, senderId, receiverId}
+        {:routing, numNodes, numRequests, hops + 1, senderId, receiverId, new_list_traverse}
       )
       # GenServer.cast(String.to_atom("n"<>my_closest_connection), {:routing, numNodes, numRequests, hops+1, senderId, receiverId})
     end
     # end
-    {:noreply, {selfid, routetable, numRequests, zzzz, backpointerList}}
+    {:noreply, {selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, zzzz, backpointerList}}
   end
 
-  def handle_cast({:message_received, hops, receiverId},{selfid, routetable, numRequests, {reqCompleted, myMaxHops, highestReceiver},backpointerList}) do
+  def handle_cast({:message_received, hops, receiverId, list_traverse},{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, myMaxHops, highestReceiver},backpointerList}) do
     # IO.puts("hops #{hops} #{receiverId}")
     {myMaxHops, highestReceiver} =
       if hops > myMaxHops do
@@ -275,14 +363,17 @@ defmodule TapestryNode do
       else
         {myMaxHops, highestReceiver}
       end
+      IO.inspect routetable
+      IO.puts "There you go... #{inspect list_traverse}"
+
     reqCompleted = reqCompleted + 1
     # IO.puts "#{myMaxHops} #{highestReceiver} #{reqCompleted}"
     # IO.puts "#{selfid} #{receiverId} #{reqCompleted}"
     if reqCompleted == numRequests do
       # GenServer.cast(Process.whereis(:main), {:})
-      IO.puts("max for #{selfid} is #{myMaxHops} to #{highestReceiver}")
+      IO.puts("max for #{selfid} is #{myMaxHops} to #{String.slice(highestReceiver, 1..10)}")
       GenServer.cast(Tapestry.Counter, {:okk_done, myMaxHops, selfid, highestReceiver})
     end
-    {:noreply,{selfid, routetable, numRequests, {reqCompleted, myMaxHops, highestReceiver},backpointerList}}
+    {:noreply,{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, myMaxHops, highestReceiver},backpointerList}}
   end
 end
