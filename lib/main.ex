@@ -10,18 +10,18 @@ defmodule Main do
       Enum.map(1..numNodes, fn x ->
         elem(Enum.at(:ets.lookup(:hashList, Integer.to_string(x)), 0), 1)
       end)
-    IO.puts "hashList=#{inspect hashList}"
-    rand = Enum.random(hashList)
+    #IO.puts "hashList=#{inspect hashList}"
+    #rand = Enum.random(hashList)
     _=TapestrySupervisor.start_link([numNodes, numRequests,noOfNodesToFail])
     _=GenServer.call(Tapestry.Main,{:createNodes},:infinity)
     _=GenServer.call(Tapestry.Main,{:initRoutingTables,hashList},:infinity)
     _=GenServer.call(Tapestry.Main,{:initLastNode,hashList},:infinity)
-    GenServer.call(String.to_atom("n"<>rand),{:printTables})
+    #GenServer.call(String.to_atom("n"<>rand),{:printTables})
     randomNodesToFail=GenServer.call(Tapestry.Main,{:failNodesInit,hashList},:infinity)
     _=GenServer.call(Tapestry.Main,{:killNodes,randomNodesToFail},:infinity)
-    IO.puts "randomNodesToFail=#{inspect randomNodesToFail}"
-    GenServer.call(String.to_atom("n"<>rand),{:printTables})
-    #_=GenServer.call(Tapestry.Main,{:startMessaging},:infinity)
+    #IO.puts "randomNodesToFail=#{inspect randomNodesToFail}"
+    #GenServer.call(String.to_atom("n"<>rand),{:printTables})
+    _=GenServer.call(Tapestry.Main,{:startMessaging},:infinity)
   end
 
   def parse_args(args \\ []) do

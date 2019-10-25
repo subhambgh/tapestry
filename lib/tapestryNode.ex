@@ -4,7 +4,6 @@ defmodule TapestryNode do
   @nodeLength 8
 
   def start_link([x, num_created, numRequests]) do
-    input_srt = Integer.to_string(x)
     [{_, nodeid}] = :ets.lookup(:hashList, Integer.to_string(x))
 
     GenServer.start_link(__MODULE__, {nodeid, num_created, numRequests},
@@ -12,7 +11,7 @@ defmodule TapestryNode do
     )
   end
 
-  def init({selfid, num_created, numRequests}) do
+  def init({selfid, _num_created, numRequests}) do
       routetable = Matrix.from_list([[],[],[],[],[],[],[],[]])
       backupRoutetable1 = Matrix.from_list([[],[],[],[],[],[],[],[]])
       backupRoutetable2 = Matrix.from_list([[],[],[],[],[],[],[],[]])
@@ -55,8 +54,6 @@ defmodule TapestryNode do
       Enum.find_index(0..(@nodeLength - 1), fn i ->
         String.at(nodeid, i) != String.at(selfid, i)
       end)
-    # IO.puts "index = #{index} #{nodeid} #{selfid}"
-    length = String.length(nodeid)
     case index do
       0 ->
         {0, elem(Integer.parse(String.at(nodeid, 0), 16), 0)}
@@ -69,13 +66,12 @@ defmodule TapestryNode do
     end
   end
 
-  def special_case(level, selfid, routetable) do
+  def special_case(level, _selfid, routetable) do
     IO.puts("special_case #{routetable[level][0]}")
   end
 
   def anotherMatch(nodeid, selfid, routetable) do
     index = Enum.find_index(0..7, fn i -> String.at(nodeid, i) != String.at(selfid, i) end)
-    # IO.puts "index = #{index} #{nodeid} #{selfid}"
     {level, slot} =
       case index do
         0 ->
@@ -84,7 +80,6 @@ defmodule TapestryNode do
         _ ->
           {index, elem(Integer.parse(String.at(nodeid, index), 16), 0)}
       end
-    # IO.puts "here #{routetable[level][slot]} #{selfid}"
     if routetable[level][slot] == selfid do
       special_case(level, selfid, routetable)
     else
@@ -108,7 +103,7 @@ defmodule TapestryNode do
     end
   end
 
-  def routeTableBuilder(routetable, [], selfid) do
+  def routeTableBuilder(routetable, [], _selfid) do
     routetable
   end
 
@@ -171,8 +166,6 @@ defmodule TapestryNode do
           acc ++ Matrix.to_list(routetable[x])
         end)
       )
-    # -- [selfid]
-    # IO.puts "#selfid=#{selfid} targets=#{inspect targets} prevTargets=#{inspect prevTargets} level=#{level}"
     results =
       Enum.uniq(
         Enum.reduce(targets -- prevTargets, [], fn target, acc ->
@@ -184,7 +177,6 @@ defmodule TapestryNode do
             )
         end)
       )
-    # IO.puts "#selfid=#{selfid} results=#{inspect results}"
     GenServer.cast(self(), {:addToRoutTable, newNodeId})
     {:reply, Enum.uniq(results ++ targets),
     {selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
@@ -216,12 +208,12 @@ defmodule TapestryNode do
   end
 
   def handle_call({:printTables},_from,{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}) do
-    IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-    IO.puts("#{selfid}=#{inspect(routetable)}")
-    IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-    IO.puts("#{selfid}=#{inspect(backupRoutetable1)}")
-    IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-    IO.puts("#{selfid}=#{inspect(backupRoutetable2)}")
+    # IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    # IO.puts("#{selfid}=#{inspect(routetable)}")
+    # IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    # IO.puts("#{selfid}=#{inspect(backupRoutetable1)}")
+    # IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+    # IO.puts("#{selfid}=#{inspect(backupRoutetable2)}")
     {:reply,[],{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
   end
 
@@ -299,11 +291,9 @@ defmodule TapestryNode do
             backupRoutetable1 = put_in backupRoutetable1[level][slot],nil
             #backupRoutetable1 = put_in backupRoutetable1[level][slot],backupRoutetable2[level][slot]
             # backupRoutetable2 = put_in backupRoutetable2[level][slot],nil
-            # IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~2"
             {routetable,backupRoutetable1,backupRoutetable2}
           backupRoutetable2[level][slot] == nodeid ->
             backupRoutetable2 = put_in backupRoutetable2[level][slot],nil
-            # IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~3"
             {routetable,backupRoutetable1,backupRoutetable2}
           #true -> {routetable,backupRoutetable1,backupRoutetable2}
       end
@@ -317,7 +307,13 @@ defmodule TapestryNode do
       # IO.inspect(listOfNodes)
       to_send = selectNodeToSend("n" <> selfid, listOfNodes)
       {level, slot} = anotherMatch(String.slice(to_send, 1..10), selfid, routetable)
-      my_closest_connection = routetable[level][slot]
+      my_closest_connection = cond do
+                                routetable[level][slot] != nil ->
+                                  routetable[level][slot]
+                                backupRoutetable1[level][slot] != nil ->
+                                  backupRoutetable1[level][slot]
+                                true -> backupRoutetable2[level][slot]
+                              end
       # IO.puts "#{selfid} - #{String.slice(to_send, 1..100)} || #{level} #{slot}"
       if my_closest_connection == selfid do
         IO.puts("Sending self")
@@ -326,7 +322,7 @@ defmodule TapestryNode do
         String.to_atom("n" <> my_closest_connection),
         {:routing, numNodes, numRequests, 1, "n" <> selfid, to_send, [my_closest_connection]}
       )
-      GenServer.cast(self, {:goGoGo, numNodes, numRequests - 1})
+      GenServer.cast(self(), {:goGoGo, numNodes, numRequests - 1})
     end
     {:noreply, {selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests2, zzzz, backpointerList}}
   end
@@ -339,7 +335,13 @@ defmodule TapestryNode do
       GenServer.cast(String.to_atom(senderId), {:message_received, hops, receiverId, list_traverse})
     else
       {level, slot} = anotherMatch(String.slice(receiverId, 1..10), selfid, routetable)
-      my_closest_connection = routetable[level][slot]
+      my_closest_connection = cond do
+                                routetable[level][slot] != nil ->
+                                  routetable[level][slot]
+                                backupRoutetable1[level][slot] != nil ->
+                                  backupRoutetable1[level][slot]
+                                true -> backupRoutetable2[level][slot]
+                              end
       new_list_traverse = list_traverse ++ [my_closest_connection]
       if my_closest_connection == selfid do
         IO.puts("Sending self")

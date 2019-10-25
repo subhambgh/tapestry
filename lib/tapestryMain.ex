@@ -68,11 +68,9 @@ defmodule Tapestry.Main do
   end
 
   def handle_call({:initRoutingTables,hashList},_from,{numNodes, numRequests,numFailed}) do
-        #IO.puts "nodes created"
         Enum.map(hashList, fn x ->
           _ = GenServer.call(String.to_atom("n" <> x), {:intialize_routing_table, numNodes})
         end)
-        #IO.puts "nodes initialized"
       {:reply, :ok, {numNodes, numRequests,numFailed}}
    end
 
@@ -80,7 +78,6 @@ defmodule Tapestry.Main do
         newHashList = hashList -- [Enum.at(hashList, numNodes - 1)]
         {needToKnowNodes, level} =
           findNeedToKnowNode(Enum.at(hashList, numNodes - 1), [], 0, newHashList)
-        #IO.puts "found needToKnowNodes"
         rootNode =
           findRootNode(
             Enum.at(hashList, numNodes - 1),
@@ -88,7 +85,6 @@ defmodule Tapestry.Main do
             level,
             Enum.at(needToKnowNodes, 0)
           )
-        # IO.puts "lastNode=#{Enum.at(hashList,numNodes-1)}, needtoKnowNodes=#{inspect needToKnowNodes}, rootNode=#{rootNode}"
         needToKnowNodesFromRoot =
           GenServer.call(String.to_atom("n" <> rootNode),
             {:multicast, level, Enum.at(hashList, numNodes - 1), [rootNode]},:infinity)
@@ -96,26 +92,13 @@ defmodule Tapestry.Main do
           Enum.reduce(needToKnowNodesFromRoot, [], fn x, acc ->
             acc ++ GenServer.call(String.to_atom("n" <> x), {:getBackpointerList})
           end)
-        #IO.puts "needToKnowNodesFromRoot=#{inspect needToKnowNodesFromRoot}"
-        #IO.puts "backpointerList=#{inspect backpointerList}"
         finalRouteTableList = Enum.uniq(needToKnowNodesFromRoot ++ backpointerList)
-        #IO.puts "finalRouteTableList=#{inspect finalRouteTableList}"
         Enum.map(finalRouteTableList, fn x ->
           GenServer.cast(
             String.to_atom("n" <> Enum.at(hashList, numNodes - 1)),
             {:addToRoutTable, x}
           )
         end)
-        #IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-        # Enum.map hashList, fn x ->
-        #   IO.puts "##{x}=#{inspect GenServer.call(String.to_atom("n"<>x),{:getBackpointerList},:infinity)}"
-        # end
-        # IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-        # Enum.map hashList, fn x ->
-        #   GenServer.cast(String.to_atom("n"<>x),{:printBackupRout2})
-        # end
-        # IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
-        #GenServer.call(String.to_atom("n"<>Enum.random(hashList)),{:printBackupRout2})
     {:reply, :ok, {numNodes, numRequests,numFailed}}
   end
 
@@ -126,7 +109,6 @@ defmodule Tapestry.Main do
           backpointerListOfX = GenServer.call(String.to_atom("n" <> nodeBeingRemoved), {:getBackpointerList},:infinity)
           Enum.map backpointerListOfX, fn backPointerOfX ->
             GenServer.call(String.to_atom("n" <> backPointerOfX), {:removeFromRoutTable,nodeBeingRemoved},:infinity)
-            #IO.puts "#{nodeBeingRemoved}=#{inspect backPointerOfX}"
           end
         end
     {:reply, randomNodesToFail, {numNodes, numRequests,numFailed}}
@@ -134,7 +116,6 @@ defmodule Tapestry.Main do
 
   def handle_call({:killNodes,randomNodesToFail},_from,{numNodes, numRequests,numFailed}) do
       Enum.map randomNodesToFail, fn nodeBeingRemoved->
-        #IO.puts "removing nodes=#{nodeBeingRemoved}"
         Process.exit(Process.whereis(String.to_atom("n"<>nodeBeingRemoved)), :brutal_kill)
       end
       {:reply, :ok, {numNodes, numRequests,numFailed}}
