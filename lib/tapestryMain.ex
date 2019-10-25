@@ -5,23 +5,9 @@ defmodule Tapestry.Main do
     GenServer.start_link(__MODULE__, {numNodes, numRequests,numFailed},name: __MODULE__)
   end
 
+  @impl true
   def init({numNodes, numRequests,numFailed}) do
       {:ok, {numNodes, numRequests,numFailed}}
-  end
-
-  def handle_call({:createNodes},_from,{numNodes, numRequests,numFailed}) do
-      n_list = Enum.to_list(1..numNodes)
-      Enum.map n_list, fn x ->
-        {:ok,pid} = DynamicSupervisor.start_child(TapestryNodeSupervisor, {TapestryNode, [x, numNodes, numRequests]})
-        _ref = Process.monitor(pid)
-      end
-      {:reply, :ok, {numNodes, numRequests,numFailed}}
-  end
-
-  @impl true
-  def handle_info({:DOWN, ref, :process, pid, reason}, {names, refs, adj_list}) do
-    IO.puts "#{pid} killed with reason: #{reason}"
-    {:noreply, {names, refs, adj_list}}
   end
 
   def goGoGo(numNodes, sendingTo, numRequests) do
@@ -33,7 +19,7 @@ defmodule Tapestry.Main do
     end
   end
 
-  def findNeedToKnowNode(selfid, needToKnowNodes, level, []) do
+  def findNeedToKnowNode(_selfid, needToKnowNodes, level, []) do
     {needToKnowNodes, level}
   end
 
@@ -53,13 +39,12 @@ defmodule Tapestry.Main do
       end
   end
 
-  def findRootNode(selfid, [], level, rootNode) do
+  def findRootNode(_selfid, [], _level, rootNode) do
     rootNode
   end
 
   def findRootNode(selfid, [head | tail], level, rootNode) do
-    rootNode =
-      if Kernel.abs(
+    if Kernel.abs(
            elem(Integer.parse(String.at(selfid, level), 16), 0) -
              elem(Integer.parse(String.at(rootNode, level), 16), 0)
          ) >
@@ -71,6 +56,15 @@ defmodule Tapestry.Main do
       else
         findRootNode(selfid, tail, level, rootNode)
       end
+  end
+
+  def handle_call({:createNodes},_from,{numNodes, numRequests,numFailed}) do
+      n_list = Enum.to_list(1..numNodes)
+      Enum.map n_list, fn x ->
+        {:ok,pid} = DynamicSupervisor.start_child(TapestryNodeSupervisor, {TapestryNode, [x, numNodes, numRequests]})
+        _ref = Process.monitor(pid)
+      end
+      {:reply, :ok, {numNodes, numRequests,numFailed}}
   end
 
   def handle_call({:initRoutingTables,hashList},_from,{numNodes, numRequests,numFailed}) do
@@ -138,16 +132,22 @@ defmodule Tapestry.Main do
     {:reply, randomNodesToFail, {numNodes, numRequests,numFailed}}
   end
 
-    def handle_call({:killNodes,randomNodesToFail},_from,{numNodes, numRequests,numFailed}) do
+  def handle_call({:killNodes,randomNodesToFail},_from,{numNodes, numRequests,numFailed}) do
       Enum.map randomNodesToFail, fn nodeBeingRemoved->
         #IO.puts "removing nodes=#{nodeBeingRemoved}"
         Process.exit(Process.whereis(String.to_atom("n"<>nodeBeingRemoved)), :brutal_kill)
       end
       {:reply, :ok, {numNodes, numRequests,numFailed}}
-    end
+  end
 
   def handle_call({:startMessaging},_from,{numNodes, numRequests,numFailed}) do
       goGoGo(numNodes, 1, numRequests)
     {:reply, :ok, {numNodes, numRequests,numFailed}}
   end
+
+  @impl true
+  def handle_info({:DOWN, _ref, :process, _pid, _reason}, state) do
+    {:noreply, state}
+  end
+
 end

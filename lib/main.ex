@@ -12,11 +12,11 @@ defmodule Main do
       end)
     IO.puts "hashList=#{inspect hashList}"
     rand = Enum.random(hashList)
-    GenServer.call(String.to_atom("n"<>rand),{:printTables})
     _=TapestrySupervisor.start_link([numNodes, numRequests,noOfNodesToFail])
     _=GenServer.call(Tapestry.Main,{:createNodes},:infinity)
     _=GenServer.call(Tapestry.Main,{:initRoutingTables,hashList},:infinity)
     _=GenServer.call(Tapestry.Main,{:initLastNode,hashList},:infinity)
+    GenServer.call(String.to_atom("n"<>rand),{:printTables})
     randomNodesToFail=GenServer.call(Tapestry.Main,{:failNodesInit,hashList},:infinity)
     _=GenServer.call(Tapestry.Main,{:killNodes,randomNodesToFail},:infinity)
     IO.puts "randomNodesToFail=#{inspect randomNodesToFail}"

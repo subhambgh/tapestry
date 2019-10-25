@@ -305,7 +305,7 @@ defmodule TapestryNode do
             backupRoutetable2 = put_in backupRoutetable2[level][slot],nil
             # IO.puts "~~~~~~~~~~~~~~~~~~~~~~~~3"
             {routetable,backupRoutetable1,backupRoutetable2}
-          true -> {routetable,backupRoutetable1,backupRoutetable2}
+          #true -> {routetable,backupRoutetable1,backupRoutetable2}
       end
       {:reply,[],{selfid, routetable,backupRoutetable1,backupRoutetable2, numRequests, {reqCompleted, prevhops, highest}, backpointerList}}
   end
