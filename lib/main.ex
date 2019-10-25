@@ -22,6 +22,11 @@ defmodule Main do
     #IO.puts "randomNodesToFail=#{inspect randomNodesToFail}"
     #GenServer.call(String.to_atom("n"<>rand),{:printTables})
     _=GenServer.call(Tapestry.Main,{:startMessaging},:infinity)
+    run()
+  end
+
+  def run do
+    run()
   end
 
   def parse_args(args \\ []) do

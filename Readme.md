@@ -37,3 +37,9 @@ From the project directory run...
 numNodes - number of worker nodes in the network.
 numRequests - number of requests each node to send.
 failureNodes (optional) - number of nodes user wants to fail.
+
+#### References
+-------------
+- matrix.ex is a module used to store and easily access Routing tables in the tapestry network, available on the website- https://blog.danielberkompas.com/2016/04/23/multidimensional-arrays-in-elixir/
+- https://pdos.csail.mit.edu/~strib/docs/tapestry/tapestry_jsac03.pdf
+- http://cs.brown.edu/courses/cs138/s17/content/projects/tapestry.pdf
